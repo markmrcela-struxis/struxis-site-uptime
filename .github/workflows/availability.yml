@@ -1,0 +1,48 @@
+name: STRUXIS public website availability
+
+on:
+  schedule:
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Use failure then recovery to test notifications without affecting production'
+        required: true
+        type: choice
+        default: normal
+        options:
+          - normal
+          - failure
+          - recovery
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: struxis-site-uptime
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe the two public URLs and manage incident alerts
+        run: bash ./monitor.sh '${{ inputs.test_mode || 'normal' }}'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: '0'
+      - name: Keep scheduled checks active in this public monitor repository
+        if: always() && github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d)" != 01 ]; then exit 0; fi
+          date -u +%Y-%m > .monitor-activity
+          git add .monitor-activity
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Keep public uptime schedule active'
+          git push origin HEAD:main
